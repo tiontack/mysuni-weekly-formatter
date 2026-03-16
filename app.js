@@ -2397,7 +2397,7 @@ function renderDocumentSections(doc, opts = {}) {
     .map(
       (section, sectionIndex) => `
         <section class="doc-section ${!opts.secondary && state.activeSelection.type === "section" && state.activeSelection.sectionIndex === sectionIndex ? "is-selected" : ""}" data-section-index="${sectionIndex}">
-          ${!opts.secondary ? `<button class="doc-section-copy-btn" data-action="copy-section" data-section-index="${sectionIndex}" title="Word에 붙여넣기 가능한 형식으로 복사">📋 복사</button>` : ""}
+          ${!opts.secondary ? `<button class="doc-section-copy-btn" data-action="copy-section" data-section-index="${sectionIndex}" title="표준 양식 스타일 그대로 .docx 다운로드 → Word에서 열어 Ctrl+A 복사 후 붙여넣기">⬇ Word 저장</button>` : ""}
           <p class="doc-category">${escapeHtml(section.category)}</p>
           ${section.items
             .map(
@@ -2418,135 +2418,63 @@ function renderDocumentSections(doc, opts = {}) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   섹션 복사 (Word 붙여넣기 호환)
+   섹션 Word 다운로드 (표준 양식 완전 호환)
+   — template.docx 기반으로 해당 섹션만 .docx 생성 후 다운로드
+   — Word에서 열어 Ctrl+A → Ctrl+C → 대상 문서에 붙여넣기하면
+     표준 양식 스타일(a/a0/a1/af4 등)이 완벽히 유지됨
 ───────────────────────────────────────────────────────────── */
-
-/** 섹션 하나를 Word 붙여넣기 호환 HTML로 변환 */
-function buildSectionWordHtml(section) {
-  const FONT = "'맑은 고딕','Malgun Gothic',AppleGothic,sans-serif";
-  const INK  = "#1a1a1a";
-  const INK2 = "#333333";
-  let body = "";
-
-  // 카테고리 제목
-  body += `<p style="margin:0 0 6pt 0;color:#0070c0;font-family:${FONT};font-size:14pt;font-weight:bold;line-height:1.4;">${escapeHtml(section.category)}</p>`;
-
-  for (const item of section.items) {
-    // 과제명 (■)
-    if (item.title) {
-      body += `<p style="margin:0 0 2pt 0;color:${INK};font-family:${FONT};font-size:11pt;font-weight:bold;line-height:1.4;">&#9632;&nbsp;${escapeHtml(item.title)}</p>`;
-    }
-
-    // 내용 (detail)
-    for (const detail of item.details) {
-      const hasBullet = hasDetailBullet(detail);
-      const text = stripDetailBullet(detail);
-      text.split("\n").forEach((line, i) => {
-        if (!line.trim() && i > 0) return;
-        const indent = (i === 0 && hasBullet) ? "margin:0 0 0 20pt;" : i === 0 ? "margin:0;" : "margin:0 0 0 20pt;";
-        const prefix = (i === 0 && hasBullet) ? "&#8211;&nbsp;" : "";
-        body += `<p style="${indent}color:${INK2};font-family:${FONT};font-size:11pt;line-height:1.55;">${prefix}${escapeHtml(line)}</p>`;
-      });
-    }
-
-    // 표 (table)
-    for (const table of item.tables) {
-      if (!table.rows?.length) continue;
-      body += `<table style="border-collapse:collapse;width:100%;font-family:${FONT};font-size:11pt;margin:4pt 0 8pt 0;">`;
-      table.rows.forEach((row, rI) => {
-        const isHeader = rI === 0;
-        body += "<tr>";
-        row.forEach(cell => {
-          const norm = normalizeTableCellData(cell);
-          if (norm.rowSpan === 0) return;
-          const tag   = isHeader ? "th" : "td";
-          const cs    = norm.colSpan > 1 ? ` colspan="${norm.colSpan}"` : "";
-          const rs    = norm.rowSpan > 1 ? ` rowspan="${norm.rowSpan}"` : "";
-          const align = norm.align || (isHeader ? "center" : "left");
-          const bg    = isHeader ? "background:#e8e8e8;" : "";
-          const fw    = isHeader ? "font-weight:bold;" : "";
-          const cellHtml = getTableCellDisplayValue(cell, isHeader).split("\n").map(l => escapeHtml(l)).join("<br>");
-          body += `<${tag}${cs}${rs} style="${bg}${fw}padding:4pt 6pt;border:1pt solid #999;text-align:${align};vertical-align:middle;">${cellHtml}</${tag}>`;
-        });
-        body += "</tr>";
-      });
-      body += "</table>";
-    }
-
-    // 이미지
-    if (item.images?.length) {
-      for (const img of item.images) {
-        if (!img?.dataUrl) continue;
-        const wPx = img.cx > 0 ? Math.round(img.cx / 914400 * 96) : null;
-        const wAttr = wPx ? ` width="${wPx}"` : "";
-        body += `<p style="margin:4pt 0;"><img src="${img.dataUrl}"${wAttr} style="max-width:100%;"></p>`;
-      }
-    }
-  }
-
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:'맑은 고딕',sans-serif;font-size:11pt;}table{border-collapse:collapse;}</style></head><body>${body}</body></html>`;
-}
-
-/** 섹션 평문 텍스트 (Clipboard API 폴백용) */
-function buildSectionPlainText(section) {
-  let t = `[${section.category}]\n`;
-  for (const item of section.items) {
-    if (item.title) t += `■ ${item.title}\n`;
-    for (const detail of item.details) {
-      const hasBullet = hasDetailBullet(detail);
-      const text = stripDetailBullet(detail);
-      t += (hasBullet ? "  – " : "  ") + text + "\n";
-    }
-    for (const table of item.tables) {
-      if (!table.rows?.length) continue;
-      for (const row of table.rows) {
-        t += row.map(c => getTableCellDisplayValue(c, false)).join("\t") + "\n";
-      }
-    }
-  }
-  return t;
-}
-
-/** 섹션을 클립보드에 복사 (Word 서식 포함) */
 async function copySectionToClipboard(sectionIndex, btn) {
+  if (!window.JSZip) {
+    alert("JSZip 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    return;
+  }
+
   const doc = getPreviewDocument();
   const section = doc.sections[sectionIndex];
   if (!section) return;
 
-  const wordHtml  = buildSectionWordHtml(section);
-  const plainText = buildSectionPlainText(section);
   const originalLabel = btn ? btn.innerHTML : "";
+  const markLoading = () => { if (btn) { btn.innerHTML = "⏳ 생성 중…"; btn.disabled = true; } };
+  const markDone    = () => { if (btn) { btn.innerHTML = "✓ 다운로드됨"; btn.classList.add("copied"); setTimeout(() => { btn.innerHTML = originalLabel; btn.classList.remove("copied"); btn.disabled = false; }, 2500); } };
+  const markError   = () => { if (btn) { btn.innerHTML = originalLabel; btn.disabled = false; } };
 
-  const markDone = () => {
-    if (!btn) return;
-    btn.innerHTML = "✓ 복사됨";
-    btn.classList.add("copied");
-    setTimeout(() => { btn.innerHTML = originalLabel; btn.classList.remove("copied"); }, 2000);
-  };
+  markLoading();
 
   try {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        "text/html":  new Blob([wordHtml],  { type: "text/html" }),
-        "text/plain": new Blob([plainText], { type: "text/plain" }),
-      })
-    ]);
+    const templateBuffer = await fetch("./assets/template.docx").then(r => r.arrayBuffer());
+    const zip = await window.JSZip.loadAsync(templateBuffer);
+
+    // 단일 섹션 문서 구성 (섹션만 포함, 헤더 없음)
+    const singleSectionDoc = { ...doc, sections: [section] };
+    const imageDataMap = await injectImagesToWordZip(zip, [singleSectionDoc]);
+
+    const xmlString = await zip.file("word/document.xml").async("string");
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlString, "application/xml");
+    const body = xml.getElementsByTagNameNS(WORD_NS, "body")[0];
+    const sectPr = body.getElementsByTagNameNS(WORD_NS, "sectPr")[0].cloneNode(true);
+
+    while (body.firstChild) body.removeChild(body.firstChild);
+
+    // 헤더 없이 섹션 본문만 빌드
+    buildTemplateBody(xml, body, singleSectionDoc, {
+      lang: state.outputLang.startsWith("ko") ? "ko" : "en",
+      includeHeader: false,
+      imageDataMap,
+    });
+    body.appendChild(sectPr);
+
+    zip.file("word/document.xml", new XMLSerializer().serializeToString(xml));
+    const blob = await zip.generateAsync({ type: "blob" });
+
+    // 파일명: 카테고리명 기반
+    const safeName = section.category.replace(/[\\/:*?"<>|]/g, "_").trim() || `section_${sectionIndex + 1}`;
+    downloadBlob(blob, `${safeName}.docx`);
     markDone();
-  } catch {
-    // execCommand 폴백 (구형 브라우저 / 권한 없을 때)
-    const el = document.createElement("div");
-    el.innerHTML = wordHtml;
-    Object.assign(el.style, { position: "fixed", top: "-9999px", left: "-9999px" });
-    document.body.appendChild(el);
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand("copy");
-    sel.removeAllRanges();
-    document.body.removeChild(el);
-    markDone();
+  } catch (err) {
+    console.error(err);
+    alert("섹션 파일 생성에 실패했습니다.");
+    markError();
   }
 }
 

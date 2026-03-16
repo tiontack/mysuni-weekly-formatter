@@ -1867,7 +1867,8 @@ button, input, textarea, select, option {
   transition: background 80ms, color 80ms, border-color 80ms;
 }
 .doc-section:hover .doc-section-copy-btn { display: flex; }
-.doc-section-copy-btn:hover { background: #f0f7ff; }
+.doc-section-copy-btn:hover { background: #f0f7ff; border-color: #0070c0; }
+.doc-section-copy-btn:disabled { opacity: .6; cursor: default; }
 .doc-section-copy-btn.copied {
   color: #1da362;
   border-color: #1da362;
