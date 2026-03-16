@@ -1844,6 +1844,36 @@ button, input, textarea, select, option {
   border-radius: 4px;
 }
 
+/* ▸ 섹션 복사 버튼 (hover 시 우상단 표시) ── */
+.doc-section-copy-btn {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 3px 10px;
+  background: #fff;
+  border: 1px solid #c8d6e5;
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: var(--body-font);
+  color: #0070c0;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  z-index: 10;
+  line-height: 1.5;
+  transition: background 80ms, color 80ms, border-color 80ms;
+}
+.doc-section:hover .doc-section-copy-btn { display: flex; }
+.doc-section-copy-btn:hover { background: #f0f7ff; }
+.doc-section-copy-btn.copied {
+  color: #1da362;
+  border-color: #1da362;
+  background: #f0faf5;
+}
+
 .doc-category {
   margin: 0 0 8px 0;
   color: #0070c0;

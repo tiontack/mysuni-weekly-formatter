@@ -2397,6 +2397,7 @@ function renderDocumentSections(doc, opts = {}) {
     .map(
       (section, sectionIndex) => `
         <section class="doc-section ${!opts.secondary && state.activeSelection.type === "section" && state.activeSelection.sectionIndex === sectionIndex ? "is-selected" : ""}" data-section-index="${sectionIndex}">
+          ${!opts.secondary ? `<button class="doc-section-copy-btn" data-action="copy-section" data-section-index="${sectionIndex}" title="Word에 붙여넣기 가능한 형식으로 복사">📋 복사</button>` : ""}
           <p class="doc-category">${escapeHtml(section.category)}</p>
           ${section.items
             .map(
@@ -2414,6 +2415,139 @@ function renderDocumentSections(doc, opts = {}) {
       `
     )
     .join("");
+}
+
+/* ─────────────────────────────────────────────────────────────
+   섹션 복사 (Word 붙여넣기 호환)
+───────────────────────────────────────────────────────────── */
+
+/** 섹션 하나를 Word 붙여넣기 호환 HTML로 변환 */
+function buildSectionWordHtml(section) {
+  const FONT = "'맑은 고딕','Malgun Gothic',AppleGothic,sans-serif";
+  const INK  = "#1a1a1a";
+  const INK2 = "#333333";
+  let body = "";
+
+  // 카테고리 제목
+  body += `<p style="margin:0 0 6pt 0;color:#0070c0;font-family:${FONT};font-size:14pt;font-weight:bold;line-height:1.4;">${escapeHtml(section.category)}</p>`;
+
+  for (const item of section.items) {
+    // 과제명 (■)
+    if (item.title) {
+      body += `<p style="margin:0 0 2pt 0;color:${INK};font-family:${FONT};font-size:11pt;font-weight:bold;line-height:1.4;">&#9632;&nbsp;${escapeHtml(item.title)}</p>`;
+    }
+
+    // 내용 (detail)
+    for (const detail of item.details) {
+      const hasBullet = hasDetailBullet(detail);
+      const text = stripDetailBullet(detail);
+      text.split("\n").forEach((line, i) => {
+        if (!line.trim() && i > 0) return;
+        const indent = (i === 0 && hasBullet) ? "margin:0 0 0 20pt;" : i === 0 ? "margin:0;" : "margin:0 0 0 20pt;";
+        const prefix = (i === 0 && hasBullet) ? "&#8211;&nbsp;" : "";
+        body += `<p style="${indent}color:${INK2};font-family:${FONT};font-size:11pt;line-height:1.55;">${prefix}${escapeHtml(line)}</p>`;
+      });
+    }
+
+    // 표 (table)
+    for (const table of item.tables) {
+      if (!table.rows?.length) continue;
+      body += `<table style="border-collapse:collapse;width:100%;font-family:${FONT};font-size:11pt;margin:4pt 0 8pt 0;">`;
+      table.rows.forEach((row, rI) => {
+        const isHeader = rI === 0;
+        body += "<tr>";
+        row.forEach(cell => {
+          const norm = normalizeTableCellData(cell);
+          if (norm.rowSpan === 0) return;
+          const tag   = isHeader ? "th" : "td";
+          const cs    = norm.colSpan > 1 ? ` colspan="${norm.colSpan}"` : "";
+          const rs    = norm.rowSpan > 1 ? ` rowspan="${norm.rowSpan}"` : "";
+          const align = norm.align || (isHeader ? "center" : "left");
+          const bg    = isHeader ? "background:#e8e8e8;" : "";
+          const fw    = isHeader ? "font-weight:bold;" : "";
+          const cellHtml = getTableCellDisplayValue(cell, isHeader).split("\n").map(l => escapeHtml(l)).join("<br>");
+          body += `<${tag}${cs}${rs} style="${bg}${fw}padding:4pt 6pt;border:1pt solid #999;text-align:${align};vertical-align:middle;">${cellHtml}</${tag}>`;
+        });
+        body += "</tr>";
+      });
+      body += "</table>";
+    }
+
+    // 이미지
+    if (item.images?.length) {
+      for (const img of item.images) {
+        if (!img?.dataUrl) continue;
+        const wPx = img.cx > 0 ? Math.round(img.cx / 914400 * 96) : null;
+        const wAttr = wPx ? ` width="${wPx}"` : "";
+        body += `<p style="margin:4pt 0;"><img src="${img.dataUrl}"${wAttr} style="max-width:100%;"></p>`;
+      }
+    }
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:'맑은 고딕',sans-serif;font-size:11pt;}table{border-collapse:collapse;}</style></head><body>${body}</body></html>`;
+}
+
+/** 섹션 평문 텍스트 (Clipboard API 폴백용) */
+function buildSectionPlainText(section) {
+  let t = `[${section.category}]\n`;
+  for (const item of section.items) {
+    if (item.title) t += `■ ${item.title}\n`;
+    for (const detail of item.details) {
+      const hasBullet = hasDetailBullet(detail);
+      const text = stripDetailBullet(detail);
+      t += (hasBullet ? "  – " : "  ") + text + "\n";
+    }
+    for (const table of item.tables) {
+      if (!table.rows?.length) continue;
+      for (const row of table.rows) {
+        t += row.map(c => getTableCellDisplayValue(c, false)).join("\t") + "\n";
+      }
+    }
+  }
+  return t;
+}
+
+/** 섹션을 클립보드에 복사 (Word 서식 포함) */
+async function copySectionToClipboard(sectionIndex, btn) {
+  const doc = getPreviewDocument();
+  const section = doc.sections[sectionIndex];
+  if (!section) return;
+
+  const wordHtml  = buildSectionWordHtml(section);
+  const plainText = buildSectionPlainText(section);
+  const originalLabel = btn ? btn.innerHTML : "";
+
+  const markDone = () => {
+    if (!btn) return;
+    btn.innerHTML = "✓ 복사됨";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.innerHTML = originalLabel; btn.classList.remove("copied"); }, 2000);
+  };
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html":  new Blob([wordHtml],  { type: "text/html" }),
+        "text/plain": new Blob([plainText], { type: "text/plain" }),
+      })
+    ]);
+    markDone();
+  } catch {
+    // execCommand 폴백 (구형 브라우저 / 권한 없을 때)
+    const el = document.createElement("div");
+    el.innerHTML = wordHtml;
+    Object.assign(el.style, { position: "fixed", top: "-9999px", left: "-9999px" });
+    document.body.appendChild(el);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand("copy");
+    sel.removeAllRanges();
+    document.body.removeChild(el);
+    markDone();
+  }
 }
 
 function renderPreview() {
@@ -3512,6 +3646,14 @@ function onEditorInput(event) {
 }
 
 function onPreviewClick(event) {
+  // 복사 버튼 클릭 시 섹션 선택보다 먼저 처리
+  const copyBtn = event.target.closest("[data-action='copy-section']");
+  if (copyBtn) {
+    event.stopPropagation();
+    copySectionToClipboard(Number(copyBtn.dataset.sectionIndex), copyBtn);
+    return;
+  }
+
   const section = event.target.closest(".doc-section");
   if (!section) {
     return;
