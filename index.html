@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mySUNI Weekly Formatter</title>
+    <link rel="stylesheet" href="./styles.css?v=20260316a" />
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <div class="top-chrome">
+        <header class="app-header">
+          <div class="header-brand">
+            <img src="./assets/mysuni-ci.png" alt="mySUNI CI" class="brand-logo" />
+            <div>
+            <p class="eyebrow">mySUNI Weekly Formatter</p>
+            <h1>회의 문서 양식 정리 페이지</h1>
+            </div>
+          </div>
+          <nav class="top-tabs">
+            <button id="mainTabButton" class="top-tab active">작성</button>
+            <button id="integrationTabButton" class="top-tab">통합</button>
+            <button id="archiveTabButton" class="top-tab">아카이브</button>
+            <button id="translateTabButton" class="top-tab">번역</button>
+            <button id="guideTabButton" class="top-tab">가이드</button>
+            <button id="adminTabButton" class="top-tab">Admin</button>
+          </nav>
+        </header>
+      </div>
+
+      <main id="mainTab" class="workspace writing-layout app-tab active">
+        <section class="panel writing-toolbar">
+          <div class="toolbar-group toolbar-upload">
+            <span class="toolbar-label">문서 입력</span>
+            <label class="upload-trigger" for="docxInput">
+              파일 선택
+              <input id="docxInput" type="file" accept=".docx" />
+            </label>
+            <div class="upload-status">
+              <span id="uploadedFileName" class="hint">현재 업로드된 파일 없음</span>
+              <button id="clearDocxButton" class="upload-clear-button" type="button" aria-label="업로드 파일 삭제">x</button>
+            </div>
+          </div>
+          <div class="toolbar-group">
+            <div class="segmented" id="outputLangGroup">
+              <button class="segment active" data-output-lang="ko-only">국문만</button>
+              <button class="segment" data-output-lang="en-only">영문만</button>
+              <button class="segment" data-output-lang="ko-en">국문+영문</button>
+              <button class="segment" data-output-lang="en-ko">영문+국문</button>
+            </div>
+          </div>
+          <div class="toolbar-group toolbar-actions">
+            <button id="exportWordButton" class="primary-button">Word 내보내기</button>
+            <button id="printButton" class="secondary-button">인쇄 / PDF 저장</button>
+          </div>
+          <div class="toolbar-group toolbar-save">
+            <span id="draftStatus" class="hint">임시 저장 대기</span>
+            <button id="saveDraftButton" class="ghost-button">저장</button>
+          </div>
+        </section>
+
+        <div class="writing-main-grid">
+          <section class="panel preview-snapshot-panel">
+            <div class="panel-head preview-snapshot-head">
+              <h2>미리보기</h2>
+              <p id="translationStatus" class="hint">
+                영문 보기는 회사 용어집/영문명 사전을 우선 적용하는 사전 기반 번역입니다.
+              </p>
+            </div>
+            <div class="preview-snapshot">
+              <div class="document-sheet preview-sheet">
+                <div class="sheet-sticky">
+                  <h1 id="previewTitle">제목</h1>
+                  <div class="meta-block">
+                    <p><span id="dateLabel">일자</span>: <strong id="previewDate"></strong></p>
+                    <p><span id="orgLabel">부서</span>: <strong id="previewOrg"></strong></p>
+                  </div>
+                </div>
+
+                <div id="previewBody" class="sheet-body"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel editor-main-panel">
+            <div class="panel-head">
+              <h2>내용 편집</h2>
+              <p class="hint">개요와 본문을 한 화면에서 더 넓게 편집합니다.</p>
+            </div>
+
+            <!-- 여러 조직 파일 업로드 시: 조직 선택 바 (최상단 고정) -->
+            <div id="orgTabBar" class="org-tab-bar"></div>
+
+            <div class="editor-layout">
+              <section class="editor-overview-panel">
+                <h3>개요 편집</h3>
+                <label class="field">
+                  <span>문서 제목</span>
+                  <input id="titleInput" placeholder="문서 제목 입력" />
+                </label>
+                <div class="inline-grid inline-grid-meta">
+                  <label class="field">
+                    <span>일자</span>
+                    <div class="date-combo">
+                      <input id="dateInput" placeholder="2026-01-01(Thu)" />
+                      <button id="datePickerButton" class="date-picker-button" type="button" aria-label="작성 탭 일자 달력 열기">📅</button>
+                      <input id="datePicker" class="date-picker-native" type="date" aria-label="작성 탭 일자 달력 선택" />
+                    </div>
+                  </label>
+                  <label class="field">
+                    <span>조직명</span>
+                    <input id="orgInput" placeholder="조직명" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>문서명</span>
+                  <input id="filenamePreview" placeholder="mySUNI Weekly_260101_조직명_v2.docx" />
+                </label>
+              </section>
+
+              <section class="editor-content-panel">
+                <div class="panel-head content-panel-head">
+                  <h3>본문 편집</h3>
+                  <div class="content-panel-controls">
+                    <span id="sectionItemCount" class="section-item-count">0개</span>
+                    <select id="sectionSelect" class="section-select" aria-label="카테고리 선택"></select>
+                    <button id="moveSectionUpButton" class="ghost-button move-button" type="button" title="카테고리 위로">▲</button>
+                    <button id="moveSectionDownButton" class="ghost-button move-button" type="button" title="카테고리 아래로">▼</button>
+                    <button id="addSectionButton" class="ghost-button">카테고리 추가</button>
+                    <button id="removeSectionButton" class="ghost-button" type="button">카테고리 삭제</button>
+                  </div>
+                </div>
+                <div class="content-editor-grid">
+                  <div class="selection-editor-panel">
+                    <div id="editorRoot" class="editor-root"></div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <section id="integrationTab" class="guide-layout app-tab">
+        <section class="panel">
+          <div class="panel-head integration-head">
+            <div>
+              <h2>조직별 업로드 현황 및 전사 통합 문서</h2>
+              <p class="hint">6개 조직 문서를 업로드하면 제출 현황을 확인하고 한글-영문 통합 Word를 생성할 수 있습니다.</p>
+            </div>
+            <div class="integration-head-right">
+              <label class="field compact-field integration-date-field">
+                <span>회의 일자</span>
+                <div class="date-combo integration-date-combo">
+                  <input id="integrationDateInput" placeholder="2026-01-01(Thu)" />
+                  <button id="integrationDatePickerButton" class="date-picker-button" type="button" aria-label="회의 일자 달력 열기">📅</button>
+                  <input id="integrationDatePicker" class="date-picker-native" type="date" aria-label="회의 일자 달력 선택" />
+                </div>
+              </label>
+            </div>
+          </div>
+          <div id="integrationStatusList" class="integration-grid"></div>
+          <div class="panel-head integration-actions">
+            <div class="integration-actions-row">
+              <div class="segmented" id="integrationLangGroup">
+                <button class="segment active" data-integ-lang="ko-en">국문+영문</button>
+                <button class="segment" data-integ-lang="en-ko">영문+국문</button>
+              </div>
+              <div class="button-row">
+                <button id="integrationExportButton" class="primary-button">통합 Word 생성</button>
+                <button id="integrationArchiveButton" class="ghost-button">아카이브 저장</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>일자별 회의자료 아카이브</h2>
+          <div id="archiveList" class="archive-list"></div>
+        </section>
+      </section>
+
+      <section id="archiveTab" class="guide-layout app-tab">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>작성 아카이브</h2>
+              <p class="hint">`저장` 버튼으로 남긴 문서 기록을 확인하고 다시 불러올 수 있습니다.</p>
+            </div>
+          </div>
+          <div id="documentArchiveList" class="archive-list"></div>
+        </section>
+      </section>
+
+      <!-- ── 번역 탭 ────────────────────────────── -->
+      <main id="translateTab" class="workspace app-tab translate-layout">
+        <section class="panel translate-panel">
+          <div class="translate-header">
+            <div class="translate-header-left">
+              <h2>텍스트 번역</h2>
+              <p class="hint">한국어 텍스트를 입력하면 브라우저 번역 기능으로 실시간 영문 번역합니다.</p>
+            </div>
+            <div class="translate-header-right">
+              <span id="translateApiStatus" class="translate-api-badge"></span>
+            </div>
+          </div>
+          <div class="translate-grid">
+            <!-- 한국어 입력 -->
+            <div class="translate-pane translate-pane-source">
+              <div class="translate-pane-header">
+                <span class="translate-lang-label">🇰🇷 한국어</span>
+                <div class="translate-pane-actions">
+                  <span id="translateCharCount" class="translate-char-count">0자</span>
+                  <button id="translateClearBtn" class="ghost-button translate-action-btn">지우기</button>
+                </div>
+              </div>
+              <textarea
+                id="translateInput"
+                class="translate-textarea"
+                placeholder="번역할 한국어 텍스트를 입력하세요…"
+                spellcheck="false"
+              ></textarea>
+            </div>
+
+            <!-- 구분선 + 방향 표시 -->
+            <div class="translate-divider">
+              <div class="translate-arrow-wrap">
+                <span class="translate-arrow">→</span>
+                <span id="translateLoadingDot" class="translate-loading-dot hidden"></span>
+              </div>
+            </div>
+
+            <!-- 영어 출력 -->
+            <div class="translate-pane translate-pane-target">
+              <div class="translate-pane-header">
+                <span class="translate-lang-label">🇺🇸 English</span>
+                <div class="translate-pane-actions">
+                  <button id="translateCopyBtn" class="ghost-button translate-action-btn">복사</button>
+                </div>
+              </div>
+              <div
+                id="translateOutput"
+                class="translate-output"
+                aria-live="polite"
+              ><span class="translate-placeholder">번역 결과가 여기에 표시됩니다.</span></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <section id="guideTab" class="guide-layout app-tab">
+        <section class="panel guide-panel">
+          <div class="guide-panel-head">
+            <h2>작성 가이드</h2>
+            <p class="hint">mySUNI Weekly 작성 시 지켜야 할 형식과 규칙입니다.</p>
+          </div>
+          <div id="guideList"></div>
+        </section>
+
+        <section class="panel">
+          <h2>구성원 영문이름 찾기</h2>
+          <label class="field">
+            <span>이름 검색</span>
+            <input id="memberSearchInput" placeholder="예: 신현택 / Sean" />
+          </label>
+          <div class="dictionary-stats">
+            <span id="glossaryCount"></span>
+            <span id="nameCount"></span>
+          </div>
+          <div id="memberSearchResult" class="search-result"></div>
+        </section>
+
+        <section class="panel">
+          <h2>영문 참고 사전</h2>
+          <div id="glossaryGuideTable" class="guide-dictionary"></div>
+        </section>
+      </section>
+
+      <section id="adminTab" class="guide-layout app-tab">
+        <section id="adminLocked" class="panel">
+          <h2>Admin 로그인</h2>
+          <label class="field">
+            <span>비밀번호</span>
+            <input id="adminPasswordInput" type="password" placeholder="비밀번호 1234" />
+          </label>
+          <div class="button-row">
+            <button id="adminLoginButton" class="primary-button">로그인</button>
+          </div>
+        </section>
+
+        <section id="adminUnlocked" class="panel hidden">
+          <div class="panel-head">
+            <h2>Admin 편집</h2>
+            <button id="adminLogoutButton" class="ghost-button">로그아웃</button>
+          </div>
+
+          <label class="field">
+            <span>가이드 문구 (한 줄에 한 항목)</span>
+            <textarea id="adminGuideInput" rows="8"></textarea>
+          </label>
+          <label class="field">
+            <span>용어집 (탭으로 구분: 한국어[TAB]영문)</span>
+            <textarea id="adminGlossaryInput" rows="10"></textarea>
+          </label>
+          <label class="field">
+            <span>구성원 영문이름 (탭으로 구분: 한글이름[TAB]영문이름)</span>
+            <textarea id="adminNamesInput" rows="12"></textarea>
+          </label>
+          <label class="field">
+            <span>AI 번역 모델</span>
+            <input id="adminAiModelInput" placeholder="gemini-2.0-flash" />
+          </label>
+          <p class="hint">
+            영문 보기는 브라우저 내장 번역을 우선 사용합니다. 미지원 브라우저에서는 규칙 기반 번역으로 표시될 수 있습니다.
+          </p>
+          <div class="button-row">
+            <button id="adminSaveButton" class="primary-button">저장</button>
+            <button id="adminResetButton" class="ghost-button">기본값 복원</button>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <script defer src="./reference-data.js?v=20260312e"></script>
+    <script defer src="./app.js?v=20260316a"></script>
+  </body>
+</html>
