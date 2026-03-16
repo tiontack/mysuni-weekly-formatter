@@ -3099,8 +3099,8 @@ function onEditorClick(event) {
   // 셀 선택 클릭 처리 (td 요소)
   const cellEl = event.target.closest("td[data-action='select-table-cell']");
   if (cellEl) {
-    // ★ input 직접 클릭 시 selectTableCell/re-render를 건너뜀 → 브라우저 기본 포커스 허용
-    if (event.target.tagName === "INPUT") {
+    // ★ input/textarea 직접 클릭 시 selectTableCell/re-render를 건너뜀 → 브라우저 기본 포커스 허용
+    if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
       return;
     }
     const sI = Number(cellEl.dataset.sectionIndex);
