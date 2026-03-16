@@ -3099,7 +3099,7 @@ function onEditorClick(event) {
   // 셀 선택 클릭 처리 (td 요소)
   const cellEl = event.target.closest("td[data-action='select-table-cell']");
   if (cellEl) {
-    // ★ input/textarea 직접 클릭 시 selectTableCell/re-render를 건너뜀 → 브라우저 기본 포커스 허용
+    // ★ textarea 직접 클릭 시 selectTableCell/re-render를 건너뜀 → 브라우저 기본 포커스 허용
     if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
       return;
     }
@@ -3109,6 +3109,14 @@ function onEditorClick(event) {
     const rI = Number(cellEl.dataset.rowIndex);
     const cI = Number(cellEl.dataset.cellIndex);
     selectTableCell(sI, iI, tI, rI, cI, event.ctrlKey || event.metaKey);
+    // re-render 후 해당 셀 textarea에 자동 포커스 (단일 클릭으로 바로 편집 가능)
+    if (!event.ctrlKey && !event.metaKey) {
+      requestAnimationFrame(() => {
+        const sel = `textarea[data-action="table-cell"][data-section-index="${sI}"][data-item-index="${iI}"][data-table-index="${tI}"][data-row-index="${rI}"][data-cell-index="${cI}"]`;
+        const ta = els.editorRoot?.querySelector(sel);
+        if (ta) ta.focus();
+      });
+    }
     return;
   }
   // 행 선택 클릭 처리
