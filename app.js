@@ -2397,7 +2397,10 @@ function renderDocumentSections(doc, opts = {}) {
     .map(
       (section, sectionIndex) => `
         <section class="doc-section ${!opts.secondary && state.activeSelection.type === "section" && state.activeSelection.sectionIndex === sectionIndex ? "is-selected" : ""}" data-section-index="${sectionIndex}">
-          ${!opts.secondary ? `<button class="doc-section-copy-btn" data-action="copy-section" data-section-index="${sectionIndex}" title="표준 양식 스타일 그대로 .docx 다운로드 → Word에서 열어 Ctrl+A 복사 후 붙여넣기">⬇ Word 저장</button>` : ""}
+          ${!opts.secondary ? `<span class="doc-section-actions">
+            <button class="doc-section-act-btn" data-action="copy-section" data-section-index="${sectionIndex}" title="표준 양식 스타일로 클립보드 복사 → 동일 템플릿 기반 Word 문서에 바로 붙여넣기 가능">📋 복사</button>
+            <button class="doc-section-act-btn" data-action="download-section" data-section-index="${sectionIndex}" title="표준 양식 .docx 파일로 저장">⬇ Word 저장</button>
+          </span>` : ""}
           <p class="doc-category">${escapeHtml(section.category)}</p>
           ${section.items
             .map(
@@ -2418,12 +2421,122 @@ function renderDocumentSections(doc, opts = {}) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   섹션 Word 다운로드 (표준 양식 완전 호환)
-   — template.docx 기반으로 해당 섹션만 .docx 생성 후 다운로드
-   — Word에서 열어 Ctrl+A → Ctrl+C → 대상 문서에 붙여넣기하면
-     표준 양식 스타일(a/a0/a1/af4 등)이 완벽히 유지됨
+   섹션 액션: 복사 (Word HTML) + Word 저장 (.docx 다운로드)
 ───────────────────────────────────────────────────────────── */
+
+/**
+ * 표준 양식 스타일명(a / a0 / a1 / af4)을 담은 Word HTML 클립보드 복사.
+ * 붙여넣을 문서가 동일 mySUNI 템플릿 기반이면 스타일이 그대로 적용됨.
+ */
 async function copySectionToClipboard(sectionIndex, btn) {
+  const doc = getPreviewDocument();
+  const section = doc.sections[sectionIndex];
+  if (!section) return;
+
+  const lang = state.outputLang.startsWith("ko") ? "KO" : "EN";
+  const originalLabel = btn ? btn.innerHTML : "";
+  const markDone  = () => { if (btn) { btn.innerHTML = "✓ 복사됨"; btn.classList.add("copied"); setTimeout(() => { btn.innerHTML = originalLabel; btn.classList.remove("copied"); }, 2000); } };
+  const markError = () => { if (btn) { btn.innerHTML = originalLabel; } };
+
+  // ── Word HTML 생성 ──────────────────────────────────────────
+  let body = "";
+
+  // 카테고리 (a 스타일)
+  body += `<p class=a><span lang=${lang}>${escapeHtml(section.category)}</span></p>\n`;
+
+  for (const item of section.items) {
+    // 과제명 (a0 스타일 – ■ 는 스타일 정의에서 자동 표시)
+    if (item.title) {
+      body += `<p class=a0><span lang=${lang}>${escapeHtml(item.title)}</span></p>\n`;
+    }
+
+    // 내용 (a1 스타일 – – 는 numId 불릿에서 자동 표시)
+    for (const detail of item.details) {
+      const hasBullet = hasDetailBullet(detail);
+      const text = stripDetailBullet(detail);
+      text.split("\n").forEach((line, i) => {
+        if (!line.trim() && i > 0) return;
+        // 불릿 없는 행 or 연속 행: mso-list:none 으로 불릿 억제
+        const suppress = (i > 0 || !hasBullet) ? " style='mso-list:none'" : "";
+        body += `<p class=a1${suppress}><span lang=${lang}>${escapeHtml(line)}</span></p>\n`;
+      });
+    }
+
+    // 표 (af4 테이블 스타일)
+    for (const table of item.tables) {
+      if (!table.rows?.length) continue;
+      body += `<table class=af4 style='border-collapse:collapse;mso-table-lspace:.05pt;mso-table-rspace:.05pt;'>\n`;
+      table.rows.forEach((row, rI) => {
+        const isHeader = rI === 0;
+        body += "<tr>\n";
+        row.forEach(cell => {
+          const norm = normalizeTableCellData(cell);
+          if (norm.rowSpan === 0) return;
+          const tag   = isHeader ? "th" : "td";
+          const cs    = norm.colSpan > 1 ? ` colspan="${norm.colSpan}"` : "";
+          const rs    = norm.rowSpan > 1 ? ` rowspan="${norm.rowSpan}"` : "";
+          const align = norm.align || (isHeader ? "center" : "left");
+          const hStyle = isHeader ? "background:#e8e8e8;font-weight:bold;" : "";
+          const cellHtml = getTableCellDisplayValue(cell, isHeader).split("\n").map(l => escapeHtml(l)).join("<br>");
+          body += `<${tag}${cs}${rs} style='${hStyle}border:1pt solid #999;padding:4pt 6pt;text-align:${align};vertical-align:middle;'><span lang=${lang}>${cellHtml}</span></${tag}>\n`;
+        });
+        body += "</tr>\n";
+      });
+      body += "</table>\n";
+    }
+
+    // 이미지
+    if (item.images?.length) {
+      for (const img of item.images) {
+        if (!img?.dataUrl) continue;
+        const wPx = img.cx > 0 ? Math.round(img.cx / 914400 * 96) : null;
+        body += `<p style='margin:2pt 0;'><img src="${img.dataUrl}"${wPx ? ` width="${wPx}"` : ""} style='max-width:100%;'></p>\n`;
+      }
+    }
+  }
+
+  const wordHtml = [
+    `<html xmlns:o='urn:schemas-microsoft-com:office:office'`,
+    `      xmlns:w='urn:schemas-microsoft-com:office:word'`,
+    `      xmlns='http://www.w3.org/TR/REC-html40'>`,
+    `<head><meta charset="UTF-8">`,
+    `<!--[if gte mso 9]><xml>`,
+    `<w:WordDocument><w:View>Normal</w:View><w:Zoom>0</w:Zoom>`,
+    `<w:PunctuationKerning/></w:WordDocument>`,
+    `</xml><![endif]-->`,
+    `</head>`,
+    `<body lang=${lang}>`,
+    `<div class=WordSection1>`,
+    body,
+    `</div></body></html>`,
+  ].join("\n");
+
+  // ── 클립보드에 쓰기 ─────────────────────────────────────────
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({ "text/html": new Blob([wordHtml], { type: "text/html" }) })
+    ]);
+    markDone();
+  } catch {
+    // Clipboard API 미지원 시 execCommand 폴백
+    const el = document.createElement("div");
+    el.innerHTML = wordHtml;
+    Object.assign(el.style, { position: "fixed", top: "-9999px", left: "-9999px" });
+    document.body.appendChild(el);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const ok = document.execCommand("copy");
+    sel.removeAllRanges();
+    document.body.removeChild(el);
+    ok ? markDone() : markError();
+  }
+}
+
+/** 해당 섹션을 표준 template.docx 기반 .docx 파일로 다운로드 */
+async function downloadSectionDocx(sectionIndex, btn) {
   if (!window.JSZip) {
     alert("JSZip 라이브러리를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
     return;
@@ -3574,11 +3687,16 @@ function onEditorInput(event) {
 }
 
 function onPreviewClick(event) {
-  // 복사 버튼 클릭 시 섹션 선택보다 먼저 처리
-  const copyBtn = event.target.closest("[data-action='copy-section']");
-  if (copyBtn) {
+  // 섹션 액션 버튼 (복사 / Word 저장) — 섹션 선택보다 먼저 처리
+  const actBtn = event.target.closest("[data-action='copy-section'],[data-action='download-section']");
+  if (actBtn) {
     event.stopPropagation();
-    copySectionToClipboard(Number(copyBtn.dataset.sectionIndex), copyBtn);
+    const sI = Number(actBtn.dataset.sectionIndex);
+    if (actBtn.dataset.action === "copy-section") {
+      copySectionToClipboard(sI, actBtn);
+    } else {
+      downloadSectionDocx(sI, actBtn);
+    }
     return;
   }
 
