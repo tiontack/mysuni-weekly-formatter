@@ -2489,14 +2489,15 @@ function renderDocumentSections(doc, opts = {}) {
 
 /**
  * 표준 양식 스타일(카테고리/과제/내용_)을 Word HTML 클립보드로 복사.
- * - mso-style-name: 한국어 스타일명 → 동일 템플릿 기반 문서에 붙여넣으면 스타일 직접 적용
- * - 인라인 style: 폰트·크기·들여쓰기 완전 명시 → 다른 문서에도 서식 유지
  *
- * 실측 템플릿 값 (word/styles.xml 기준):
- *   a  (카테고리): 나눔스퀘어_ac ExtraBold, 14pt, #0070C0, lineHeight 150%
- *   a0 (과제)    : 나눔스퀘어_ac Bold,       13pt, #000000, indent left=49.6pt hang=28.35pt (■ at 21.25pt)
- *   a1 (내용_)   : 나눔스퀘어_ac,            12pt, #1A1A1A, indent left=49.65pt hang=14.2pt (– at 35.45pt)
- *   table cell   : 나눔스퀘어_ac,            10pt
+ * 핵심: @list CSS + mso-list: l0 levelX lfo1 으로 진짜 다단계 목록 구성
+ *   → Word에서 Tab/Shift+Tab 으로 레벨 간 이동 가능
+ *   → ■ / – 은 목록 정의에서 자동 삽입 (인라인 텍스트 불필요)
+ *
+ * 실측 template.docx/styles.xml 값:
+ *   level1 = 카테고리 (a,  numId=12 ilvl=0): 불릿 없음
+ *   level2 = 과제명   (a0, numId=12 ilvl=1): ■ Wingdings \F0A0, left=49.6pt hang=28.35pt
+ *   level3 = 내용_    (a1, numId=11 ilvl=2): – 나눔스퀘어_ac,   left=49.65pt hang=14.2pt
  */
 async function copySectionToClipboard(sectionIndex, btn) {
   const doc = getPreviewDocument();
@@ -2508,85 +2509,43 @@ async function copySectionToClipboard(sectionIndex, btn) {
   const markDone  = () => { if (btn) { btn.innerHTML = "✓ 복사됨"; btn.classList.add("copied"); setTimeout(() => { btn.innerHTML = originalLabel; btn.classList.remove("copied"); }, 2000); } };
   const markError = () => { if (btn) { btn.innerHTML = originalLabel; } };
 
-  // ── 공통 폰트 / 스타일 상수 ───────────────────────────────────
-  // 나눔스퀘어_ac 시리즈 — mso-ascii/hansi/fareast 3종 모두 명시해야 Word가 한글에도 적용
-  const F_CAT  = "'나눔스퀘어_ac ExtraBold','나눔스퀘어_ac','맑은 고딕',sans-serif";
-  const F_ITEM = "'나눔스퀘어_ac Bold','나눔스퀘어_ac','맑은 고딕',sans-serif";
-  const F_BODY = "'나눔스퀘어_ac','맑은 고딕',sans-serif";
-  const F_MSO_CAT  = "mso-ascii-font-family:'나눔스퀘어_ac ExtraBold';mso-hansi-font-family:'나눔스퀘어_ac ExtraBold';mso-fareast-font-family:'나눔스퀘어_ac ExtraBold'";
-  const F_MSO_ITEM = "mso-ascii-font-family:'나눔스퀘어_ac Bold';mso-hansi-font-family:'나눔스퀘어_ac Bold';mso-fareast-font-family:'나눔스퀘어_ac Bold'";
-  const F_MSO_BODY = "mso-ascii-font-family:'나눔스퀘어_ac';mso-hansi-font-family:'나눔스퀘어_ac';mso-fareast-font-family:'나눔스퀘어_ac'";
-
-  // 카테고리 단락 inline style
-  const S_CAT = [
-    "mso-style-name:'카테고리'",
-    `font-family:${F_CAT}`, F_MSO_CAT,
-    "font-size:14.0pt", "font-weight:bold", "color:#0070C0",
-    "margin:0pt", "line-height:150%",
-  ].join(";");
-
-  // 과제명 단락 inline style (■ 포함 → margin-left=49.6pt, text-indent=-28.35pt → ■ at 21.25pt)
-  const S_ITEM = [
-    "mso-style-name:'과제'",
-    `font-family:${F_ITEM}`, F_MSO_ITEM,
-    "font-size:13.0pt", "font-weight:bold", "color:#000000",
-    "margin:0pt", "margin-left:49.6pt", "text-indent:-28.35pt", "line-height:115%",
-  ].join(";");
-
-  // 내용_ 단락 (불릿 있음: – at 35.45pt, text at 49.65pt)
-  const S_A1 = [
-    "mso-style-name:'내용_'",
-    `font-family:${F_BODY}`, F_MSO_BODY,
-    "font-size:12.0pt", "color:#1A1A1A",
-    "margin:0pt", "margin-left:49.65pt", "text-indent:-14.2pt", "line-height:115%",
-  ].join(";");
-
-  // 내용_ 단락 (불릿 없음: text at 49.65pt, 내어쓰기 없음)
-  const S_A1NB = [
-    "mso-style-name:'내용_'",
-    `font-family:${F_BODY}`, F_MSO_BODY,
-    "font-size:12.0pt", "color:#1A1A1A",
-    "margin:0pt", "margin-left:49.65pt", "text-indent:0pt", "line-height:115%",
-  ].join(";");
-
-  // 표 셀 공통
-  const S_TD_BASE = [
-    `font-family:${F_BODY}`, F_MSO_BODY,
-    "font-size:10.0pt", "color:#1A1A1A",
-    "padding:4pt 6pt", "vertical-align:middle",
-    "border:1pt solid #999999",
-  ].join(";");
+  // ── 표 셀 공통 inline style ────────────────────────────────
+  const S_TD = "font-family:'나눔스퀘어_ac','맑은 고딕',sans-serif;" +
+    "mso-fareast-font-family:'나눔스퀘어_ac';mso-ascii-font-family:'나눔스퀘어_ac';mso-hansi-font-family:'나눔스퀘어_ac';" +
+    "font-size:10.0pt;color:#1A1A1A;padding:4pt 6pt;vertical-align:middle;border:1pt solid #999999;";
 
   // ── HTML 본문 조립 ─────────────────────────────────────────
   let rows = "";
 
-  // 카테고리
-  rows += `<p style="${S_CAT}"><span lang=${lang}>${escapeHtml(section.category)}</span></p>\n`;
+  // 카테고리 (level1: 불릿 없음, Word mso-list로 처리)
+  rows += `<p class=a><span lang=${lang}>${escapeHtml(section.category)}</span></p>\n`;
 
   for (const item of section.items) {
-    // 과제명 (■ 인라인 포함)
+    // 과제명 (level2: ■ 은 @list l0:level2 정의에서 자동 삽입)
     if (item.title) {
-      rows += `<p style="${S_ITEM}"><span lang=${lang}>&#9632; ${escapeHtml(item.title)}</span></p>\n`;
+      rows += `<!--[if !supportLists]--><p class=a0><span style='font-family:Wingdings;mso-fareast-font-family:"나눔스퀘어_ac Bold"'>&#xF0A0;<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span><!--[endif]--><span lang=${lang}>${escapeHtml(item.title)}</span></p>\n`;
     }
 
-    // 내용_ (– 인라인 포함)
+    // 내용_ (level3: – 은 @list l0:level3 정의에서 자동 삽입)
     for (const detail of item.details) {
       const hasBullet = hasDetailBullet(detail);
       const text = stripDetailBullet(detail);
       text.split("\n").forEach((line, i) => {
         if (!line.trim() && i > 0) return;
-        const isCont = i > 0; // 연속행
-        const showBullet = i === 0 && hasBullet;
-        const s = (showBullet && !isCont) ? S_A1 : S_A1NB;
-        const prefix = showBullet ? "&#8211; " : "";
-        rows += `<p style="${s}"><span lang=${lang}>${prefix}${escapeHtml(line)}</span></p>\n`;
+        if (i === 0 && hasBullet) {
+          // 불릿 있는 내용: level3 목록 항목
+          rows += `<!--[if !supportLists]--><p class=a1><span lang=${lang} style='font-family:"나눔스퀘어_ac"'>&#8211;<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span></span><!--[endif]--><span lang=${lang}>${escapeHtml(line)}</span></p>\n`;
+        } else {
+          // 불릿 없는 내용 / 연속행: 수동 들여쓰기
+          rows += `<p class=a1nb><span lang=${lang}>${escapeHtml(line)}</span></p>\n`;
+        }
       });
     }
 
     // 표
     for (const table of item.tables) {
       if (!table.rows?.length) continue;
-      rows += `<table style="border-collapse:collapse;width:100%;mso-table-lspace:.05pt;mso-table-rspace:.05pt;margin:4pt 0;">\n`;
+      rows += `<table style="border-collapse:collapse;width:100%;mso-table-lspace:.05pt;mso-table-rspace:.05pt;margin:4pt 0 4pt 49.65pt;">\n`;
       table.rows.forEach((row, rI) => {
         const isHeader = rI === 0;
         rows += "<tr>\n";
@@ -2597,11 +2556,9 @@ async function copySectionToClipboard(sectionIndex, btn) {
           const cs   = norm.colSpan > 1 ? ` colspan="${norm.colSpan}"` : "";
           const rs   = norm.rowSpan > 1 ? ` rowspan="${norm.rowSpan}"` : "";
           const align = norm.align || (isHeader ? "center" : "left");
-          const hExtra = isHeader
-            ? "background:#E8E8E8;font-weight:bold;text-align:center;"
-            : `text-align:${align};`;
+          const hExtra = isHeader ? "background:#E8E8E8;font-weight:bold;text-align:center;" : `text-align:${align};`;
           const cellHtml = getTableCellDisplayValue(cell, isHeader).split("\n").map(l => escapeHtml(l)).join("<br>");
-          rows += `<${tag}${cs}${rs} style="${S_TD_BASE};${hExtra}"><span lang=${lang}>${cellHtml}</span></${tag}>\n`;
+          rows += `<${tag}${cs}${rs} style="${S_TD}${hExtra}"><span lang=${lang}>${cellHtml}</span></${tag}>\n`;
         });
         rows += "</tr>\n";
       });
@@ -2612,28 +2569,54 @@ async function copySectionToClipboard(sectionIndex, btn) {
     for (const img of (item.images || [])) {
       if (!img?.dataUrl) continue;
       const wPx = img.cx > 0 ? Math.round(img.cx / 914400 * 96) : null;
-      rows += `<p style="margin:4pt 0;"><img src="${img.dataUrl}"${wPx ? ` width="${wPx}"` : ""} style="max-width:100%;"></p>\n`;
+      rows += `<p style="margin:4pt 0 4pt 49.65pt;"><img src="${img.dataUrl}"${wPx ? ` width="${wPx}"` : ""} style="max-width:100%;"></p>\n`;
     }
   }
 
-  // ── 스타일 섹션 — Word가 대상 문서에 스타일명 매핑할 때 사용 ──
+  // ── @list + 단락 스타일 정의 ──────────────────────────────────
+  // @list l0: Word 다단계 목록 정의 (template.docx abstractNumId=7 구조 반영)
+  //   level2 = 과제명: Wingdings \F0A0(■), left=49.6pt, hang=28.35pt → ■ at 21.25pt
+  //   level3 = 내용_:  나눔스퀘어_ac – ,  left=49.65pt, hang=14.2pt → – at 35.45pt
   const styleSection = `<style>
-p.wcat {mso-style-name:"카테고리"; margin:0pt; line-height:150%;
-  font-family:'나눔스퀘어_ac ExtraBold','맑은 고딕',sans-serif;
-  mso-fareast-font-family:'나눔스퀘어_ac ExtraBold';
-  font-size:14.0pt; font-weight:bold; color:#0070C0;}
-p.witem {mso-style-name:"과제"; margin:0pt; margin-left:49.6pt; text-indent:-28.35pt; line-height:115%;
-  font-family:'나눔스퀘어_ac Bold','맑은 고딕',sans-serif;
-  mso-fareast-font-family:'나눔스퀘어_ac Bold';
-  font-size:13.0pt; font-weight:bold; color:#000000;}
-p.wbody {mso-style-name:"내용_"; margin:0pt; margin-left:49.65pt; text-indent:-14.2pt; line-height:115%;
+@list l0 {mso-list-id:20260316;mso-list-type:hybrid;mso-list-template-ids:20260316 -1 -1 -1 -1 -1 -1 -1 -1;}
+@list l0:level1 {mso-level-number-format:none;mso-level-text:"";mso-level-tab-stop:none;mso-level-number-position:left;margin-left:0pt;text-indent:0pt;}
+@list l0:level2 {
+  mso-level-number-format:bullet;mso-level-text:"\F0A0";
+  mso-level-tab-stop:49.6pt;mso-level-number-position:left;
+  margin-left:49.6pt;text-indent:-28.35pt;
+  font-family:Wingdings;mso-bidi-font-family:Wingdings;}
+@list l0:level3 {
+  mso-level-number-format:bullet;mso-level-text:"\2013";
+  mso-level-tab-stop:49.65pt;mso-level-number-position:left;
+  margin-left:49.65pt;text-indent:-14.2pt;
+  font-family:"나눔스퀘어_ac";mso-bidi-font-family:"나눔스퀘어_ac";}
+p.a {
+  mso-style-name:"카테고리";
+  mso-list:l0 level1 lfo1;
+  margin:0pt;line-height:150%;
+  font-family:'나눔스퀘어_ac ExtraBold','나눔스퀘어_ac','맑은 고딕',sans-serif;
+  mso-fareast-font-family:'나눔스퀘어_ac ExtraBold';mso-ascii-font-family:'나눔스퀘어_ac ExtraBold';mso-hansi-font-family:'나눔스퀘어_ac ExtraBold';
+  font-size:14.0pt;font-weight:bold;color:#0070C0;}
+p.a0 {
+  mso-style-name:"과제";
+  mso-list:l0 level2 lfo1;
+  margin:0pt;margin-left:49.6pt;text-indent:-28.35pt;line-height:115%;
+  font-family:'나눔스퀘어_ac Bold','나눔스퀘어_ac','맑은 고딕',sans-serif;
+  mso-fareast-font-family:'나눔스퀘어_ac Bold';mso-ascii-font-family:'나눔스퀘어_ac Bold';mso-hansi-font-family:'나눔스퀘어_ac Bold';
+  font-size:13.0pt;font-weight:bold;color:#000000;}
+p.a1 {
+  mso-style-name:"내용_";
+  mso-list:l0 level3 lfo1;
+  margin:0pt;margin-left:49.65pt;text-indent:-14.2pt;line-height:115%;
   font-family:'나눔스퀘어_ac','맑은 고딕',sans-serif;
-  mso-fareast-font-family:'나눔스퀘어_ac';
-  font-size:12.0pt; color:#1A1A1A;}
-p.wbodynb {mso-style-name:"내용_"; margin:0pt; margin-left:49.65pt; text-indent:0pt; line-height:115%;
+  mso-fareast-font-family:'나눔스퀘어_ac';mso-ascii-font-family:'나눔스퀘어_ac';mso-hansi-font-family:'나눔스퀘어_ac';
+  font-size:12.0pt;color:#1A1A1A;}
+p.a1nb {
+  mso-style-name:"내용_";
+  margin:0pt;margin-left:49.65pt;text-indent:0pt;line-height:115%;
   font-family:'나눔스퀘어_ac','맑은 고딕',sans-serif;
-  mso-fareast-font-family:'나눔스퀘어_ac';
-  font-size:12.0pt; color:#1A1A1A;}
+  mso-fareast-font-family:'나눔스퀘어_ac';mso-ascii-font-family:'나눔스퀘어_ac';mso-hansi-font-family:'나눔스퀘어_ac';
+  font-size:12.0pt;color:#1A1A1A;}
 </style>`;
 
   const wordHtml = [
