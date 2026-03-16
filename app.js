@@ -266,6 +266,9 @@ const els = {
   glossaryCount: document.getElementById("glossaryCount"),
   nameCount: document.getElementById("nameCount"),
   translationStatus: document.getElementById("translationStatus"),
+  archiveSelectButton: document.getElementById("archiveSelectButton"),
+  archiveSelectPanel:  document.getElementById("archiveSelectPanel"),
+  archiveSelectWrap:   document.getElementById("archiveSelectWrap"),
   addSectionButton: document.getElementById("addSectionButton"),
   removeSectionButton: document.getElementById("removeSectionButton"),
   moveSectionUpButton: document.getElementById("moveSectionUpButton"),
@@ -397,6 +400,25 @@ function bindEvents() {
 
   els.docxInput?.addEventListener("change", onDocxSelected);
   els.clearDocxButton?.addEventListener("click", clearUploadedDocument);
+
+  // 저장 기록 드롭다운
+  els.archiveSelectButton?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = els.archiveSelectPanel;
+    if (!panel) return;
+    if (panel.hidden) {
+      renderArchiveSelectPanel();
+      panel.hidden = false;
+    } else {
+      panel.hidden = true;
+    }
+  });
+  els.archiveSelectPanel?.addEventListener("click", onArchiveSelectPanelClick);
+  document.addEventListener("click", (e) => {
+    if (els.archiveSelectWrap && !els.archiveSelectWrap.contains(e.target)) {
+      if (els.archiveSelectPanel) els.archiveSelectPanel.hidden = true;
+    }
+  });
   els.orgTabBar?.addEventListener("click", (e) => {
     const tabBtn = e.target.closest("[data-action='switch-org-tab']");
     if (tabBtn) {
@@ -2228,6 +2250,47 @@ function renderDocumentArchiveTab() {
         )
         .join("")
     : '<div class="editor-empty">저장된 작성 아카이브가 없습니다.</div>';
+}
+
+/** 저장 기록 드롭다운 패널 렌더링 */
+function renderArchiveSelectPanel() {
+  const panel = els.archiveSelectPanel;
+  if (!panel) return;
+
+  const archives = state.documentArchives;
+  if (!archives.length) {
+    panel.innerHTML = `<div class="archive-select-empty">저장된 문서가 없습니다.<br><span style="font-size:10px;">작성 탭에서 '저장' 버튼을 눌러 기록을 만들어 보세요.</span></div>`;
+    return;
+  }
+
+  panel.innerHTML =
+    `<div class="archive-select-header">저장된 문서 (${archives.length}개)</div>` +
+    archives.map((a, i) => `
+      <div class="archive-select-item" data-action="load-from-archive" data-archive-index="${i}">
+        <div class="archive-select-item-title">${escapeHtml(a.title || "(제목 없음)")}</div>
+        <div class="archive-select-item-meta">${escapeHtml(a.date || "날짜 없음")} · ${escapeHtml(a.org || "조직명 없음")} · ${a.sectionCount || 0}개 카테고리 · ${escapeHtml(a.savedAtLabel || "")}</div>
+      </div>
+    `).join("");
+}
+
+/** 저장 기록 드롭다운 항목 클릭 처리 */
+function onArchiveSelectPanelClick(event) {
+  const item = event.target.closest("[data-action='load-from-archive']");
+  if (!item) return;
+
+  const archive = state.documentArchives[Number(item.dataset.archiveIndex)];
+  if (!archive) return;
+
+  state.document = cloneValue(archive.document);
+  state.activeSelection = state.document.sections.length
+    ? { type: "section", sectionIndex: 0 }
+    : { type: "overview", sectionIndex: null };
+  clearAiTranslationCache();
+  syncInputsFromState();
+  render();
+
+  // 패널 닫기
+  if (els.archiveSelectPanel) els.archiveSelectPanel.hidden = true;
 }
 
 function syncIntegrationDatePicker() {

@@ -384,6 +384,82 @@ button, input, textarea, select, option {
   cursor: pointer;
 }
 
+/* ▸ 작성탭 저장 기록 드롭다운 ─────────────────────── */
+.archive-select-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.archive-select-btn {
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 0 12px;
+  height: 36px;
+}
+
+.archive-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  max-width: 380px;
+  max-height: 340px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d0dce8;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.13);
+  z-index: 300;
+  padding: 4px 0;
+}
+
+.archive-select-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f4f8;
+  transition: background 80ms;
+}
+.archive-select-item:last-child { border-bottom: none; }
+.archive-select-item:hover { background: #f0f7ff; }
+.archive-select-item:active { background: #ddeeff; }
+
+.archive-select-item-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archive-select-item-meta {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archive-select-empty {
+  padding: 20px 14px;
+  font-size: 12px;
+  color: #aaa;
+  text-align: center;
+}
+
+.archive-select-header {
+  padding: 8px 14px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border-bottom: 1px solid #f0f4f8;
+}
+
 .upload-clear-button {
   border: 0;
   background: transparent;
