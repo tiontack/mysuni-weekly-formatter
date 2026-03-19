@@ -2586,7 +2586,7 @@ async function copySectionToClipboard(sectionIndex, btn) {
   margin-left:49.6pt;text-indent:-28.35pt;
   font-family:Wingdings;mso-bidi-font-family:Wingdings;}
 @list l0:level3 {
-  mso-level-number-format:bullet;mso-level-text:"\2013";
+  mso-level-number-format:bullet;mso-level-text:"\\2013";
   mso-level-tab-stop:49.65pt;mso-level-number-position:left;
   margin-left:49.65pt;text-indent:-14.2pt;
   font-family:"나눔스퀘어_ac";mso-bidi-font-family:"나눔스퀘어_ac";}
