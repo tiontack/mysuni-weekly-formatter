@@ -1450,7 +1450,23 @@ async function parseDocxXml(arrayBuffer) {
         continue;
       }
 
-      if (effectiveStyleId === "a") {
+      // 네모 박스(■/□ 등) 불릿으로 시작하는 단락 → 과제로 처리
+      // 공동 작업 중 스타일이 깨진 경우에도 ■ 문자 자체로 과제 감지
+      const SQUARE_BULLET_RE = /^[\uF0A0\u25A0\u25A1\u25AA\u25FC\u25FE\u2B1B■□▪◼◾⬛]+\s*/;
+      if (SQUARE_BULLET_RE.test(text) && effectiveStyleId !== "a1" && effectiveStyleId !== "a9") {
+        const cleanTitle = text.replace(SQUARE_BULLET_RE, "").trim();
+        if (cleanTitle) {
+          if (!currentSection) {
+            currentSection = createEmptySection("[Other]");
+            parsed.sections.push(currentSection);
+          }
+          currentItem = { id: createId(), title: cleanTitle, details: [], tables: [] };
+          currentSection.items.push(currentItem);
+          continue;
+        }
+      }
+
+      if (effectiveStyleId === "a" || effectiveStyleId === "a0") {
         if (shouldTreatAAsDetail(currentItem, paragraphInfo, text)) {
           appendParsedDetailLine(currentItem, paragraphInfo, text);
           continue;
@@ -1934,7 +1950,8 @@ function mapWordSymbol(font, charCode) {
     "wingdings:F0E8": "→",
     "wingdings:F0DF": "↑",
     "wingdings:F0E0": "←",
-    "wingdings:F0E1": "↓"
+    "wingdings:F0E1": "↓",
+    "wingdings:F0A0": "■"   // 표준 양식 과제 불릿
   };
   return symbolMap[key] || "";
 }
@@ -4864,6 +4881,12 @@ function getStyleFromNumbering(numberingData, numId, ilvl) {
   // pStyle 없는 ilvl=1 → 과제("a") 로 추론
   // (SKMS실천 등 numPr만으로 서식이 적용된 과제 단락 처리)
   if (ilvl === 1) return "a";
+  // 네모 박스 불릿(■/□ 등, Wingdings F0A0 포함) → 과제("a") 로 추론
+  // 공동 작업 중 서식이 달라져도 ■ 불릿은 항상 과제로 처리
+  if (levelInfo?.numFmt === "bullet") {
+    const lv = levelInfo.lvlText || "";
+    if (/[\uF0A0\u25A0\u25A1\u25AA\u25FC\u25FE\u2B1B]/.test(lv)) return "a";
+  }
   return null;
 }
 
