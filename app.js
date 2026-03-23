@@ -1316,6 +1316,10 @@ async function parseDocxXml(arrayBuffer) {
   // 번호 매기기 정보 파싱 (숫자 목록 복원용)
   const numberingXml = await zip.file("word/numbering.xml")?.async("string");
   const numberingData = parseWordNumbering(numberingXml);
+
+  // 스타일 이름 기반 역할 맵 — 문서마다 다를 수 있는 스타일 ID를 한글 이름으로 매핑
+  const stylesXml = await zip.file("word/styles.xml")?.async("string");
+  const styleRoleMap = parseStyleRoles(stylesXml);
   // 이미지 파일을 base64로 미리 로드
   const imageCache = {};
   for (const [rId, target] of Object.entries(relsMap)) {
@@ -1357,6 +1361,17 @@ async function parseDocxXml(arrayBuffer) {
           ? (getStyleFromNumbering(numberingData, paragraphInfo.numId, paragraphInfo.ilvl) || "")
           : "");
       const text = cleanMultilineText(extractWordNodeText(node));
+
+      // 스타일 역할: styles.xml 한글 이름 우선 → legacy 하드코딩 순
+      // - styleId: 단락에 명시적으로 지정된 pStyle (비어있으면 numbering 추론)
+      // - 명시적 pStyle이 있을 때만 역할 맵 적용 (numbering 추론 결과에는 미적용)
+      //   → 이유: getStyleFromNumbering이 반환하는 "a"는 ilvl 기반 추론값이지
+      //           실제 스타일 이름 기반이 아니므로, 다른 문서의 "a" = 내용_과 충돌
+      const _mappedRole = styleId ? (styleRoleMap[effectiveStyleId] || null) : null;
+      const isTaskStyle = _mappedRole === "task" ||
+        (!_mappedRole && (effectiveStyleId === "a" || effectiveStyleId === "a0"));
+      const isDetailStyle = _mappedRole === "detail" ||
+        (!_mappedRole && (effectiveStyleId === "a1" || effectiveStyleId === "a9"));
 
       // 단락 내 이미지(drawing) 추출 — cx/cy/align/distT/distB(EMU) 포함
       const drawingInfos = extractDrawingInfos(node);
@@ -1453,7 +1468,7 @@ async function parseDocxXml(arrayBuffer) {
       // 네모 박스(■/□ 등) 불릿으로 시작하는 단락 → 과제로 처리
       // 공동 작업 중 스타일이 깨진 경우에도 ■ 문자 자체로 과제 감지
       const SQUARE_BULLET_RE = /^[\uF0A0\u25A0\u25A1\u25AA\u25FC\u25FE\u2B1B■□▪◼◾⬛]+\s*/;
-      if (SQUARE_BULLET_RE.test(text) && effectiveStyleId !== "a1" && effectiveStyleId !== "a9") {
+      if (SQUARE_BULLET_RE.test(text) && !isDetailStyle) {
         const cleanTitle = text.replace(SQUARE_BULLET_RE, "").trim();
         if (cleanTitle) {
           if (!currentSection) {
@@ -1466,8 +1481,8 @@ async function parseDocxXml(arrayBuffer) {
         }
       }
 
-      if (effectiveStyleId === "a" || effectiveStyleId === "a0") {
-        if (shouldTreatAAsDetail(currentItem, paragraphInfo, text)) {
+      if (isTaskStyle) {
+        if (shouldTreatAAsDetail(currentItem, paragraphInfo, text, isTaskStyle)) {
           appendParsedDetailLine(currentItem, paragraphInfo, text);
           continue;
         }
@@ -1485,7 +1500,7 @@ async function parseDocxXml(arrayBuffer) {
         continue;
       }
 
-      if (effectiveStyleId === "a9" && shouldTreatA9AsItemTitle(node, text)) {
+      if (effectiveStyleId === "a9" && !isDetailStyle && shouldTreatA9AsItemTitle(node, text)) {
         if (!currentSection) {
           currentSection = createEmptySection("[Other]");
           parsed.sections.push(currentSection);
@@ -1500,7 +1515,7 @@ async function parseDocxXml(arrayBuffer) {
         continue;
       }
 
-      if (effectiveStyleId === "a1" || effectiveStyleId === "a9") {
+      if (isDetailStyle) {
         if (!currentItem) {
           if (!currentSection) {
             currentSection = createEmptySection("[Other]");
@@ -1989,12 +2004,13 @@ function shouldAppendTitleLikeParagraphAsDetail(currentItem, paragraphInfo, text
   return false;
 }
 
-function shouldTreatAAsDetail(currentItem, paragraphInfo, text) {
+function shouldTreatAAsDetail(currentItem, paragraphInfo, text, isTaskStyle = false) {
   if (!currentItem) {
     return false;
   }
 
-  if (!paragraphInfo || paragraphInfo.styleId !== "a") {
+  // 역할 기반: 명시적 과제 스타일이 아닌 경우 → 이 휴리스틱 적용 안 함
+  if (!isTaskStyle && paragraphInfo?.styleId !== "a") {
     return false;
   }
 
@@ -4778,6 +4794,29 @@ function downloadBlob(blob, filename) {
 
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+// styles.xml을 파싱해서 한글 스타일 이름 → 역할 맵을 반환
+// 역할: "task"(과제) | "detail"(내용) | "category"(카테고리) | "title"(타이틀) | "meta"(기본정보)
+// 공동 작업으로 스타일 ID(a, a0, a1 등)가 달라져도 한글 이름 기반으로 정확히 분류
+function parseStyleRoles(stylesXml) {
+  if (!stylesXml) return {};
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(stylesXml, "application/xml");
+  const roleMap = {};
+  for (const styleEl of [...doc.getElementsByTagNameNS(WORD_NS, "style")]) {
+    const styleId = styleEl.getAttributeNS(WORD_NS, "styleId") || styleEl.getAttribute("w:styleId") || "";
+    if (!styleId) continue;
+    const nameEl = styleEl.getElementsByTagNameNS(WORD_NS, "name")[0];
+    const name = (nameEl?.getAttributeNS(WORD_NS, "val") || nameEl?.getAttribute("w:val") || "").trim();
+    if (!name) continue;
+    if (/^(과제명?|task(\s*title)?)$/i.test(name))          roleMap[styleId] = "task";
+    else if (/^(내용_?|content|detail)$/i.test(name))        roleMap[styleId] = "detail";
+    else if (/^(카테고리|category)$/i.test(name))             roleMap[styleId] = "category";
+    else if (/^(타이틀|mySUNI\s*Weekly)$/i.test(name))       roleMap[styleId] = "title";
+    else if (/^(기본 작성 정보|basic\s*info)$/i.test(name))   roleMap[styleId] = "meta";
+  }
+  return roleMap;
+}
 
 // ── 번호 매기기(numbering) 파싱 헬퍼 ──────────────────────────────────────
 
